@@ -1,10 +1,20 @@
 import cors from "cors";
-import { env } from "../config/env.js";
+
+const parseOrigins = (value = "") => {
+  return value
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+};
 
 export const securityMiddleware = (app) => {
   const allowedOrigins = [
-    env.FRONTEND_URL,
+    process.env.FRONTEND_URL,
+    process.env.CLIENT_URL,
+    ...parseOrigins(process.env.CORS_ORIGINS),
+    "https://travelexpk.vercel.app",
     "http://localhost:5173",
+    "http://localhost:3000",
   ].filter(Boolean);
 
   app.use(
@@ -18,11 +28,15 @@ export const securityMiddleware = (app) => {
           return callback(null, true);
         }
 
-        return callback(new Error("Not allowed by CORS"));
+        console.log("Blocked by CORS:", origin);
+        return callback(new Error(`Not allowed by CORS: ${origin}`));
       },
       credentials: true,
       methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
       allowedHeaders: ["Content-Type", "Authorization"],
+      optionsSuccessStatus: 200,
     })
   );
+
+  app.options("*", cors());
 };
