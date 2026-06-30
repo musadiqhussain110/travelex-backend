@@ -17,26 +17,24 @@ export const securityMiddleware = (app) => {
     "http://localhost:3000",
   ].filter(Boolean);
 
-  app.use(
-    cors({
-      origin: (origin, callback) => {
-        if (!origin) {
-          return callback(null, true);
-        }
+  const corsOptions = {
+    origin: (origin, callback) => {
+      if (!origin) {
+        return callback(null, true);
+      }
 
-        if (allowedOrigins.includes(origin)) {
-          return callback(null, true);
-        }
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
 
-        console.log("Blocked by CORS:", origin);
-        return callback(new Error(`Not allowed by CORS: ${origin}`));
-      },
-      credentials: true,
-      methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization"],
-      optionsSuccessStatus: 200,
-    })
-  );
+      console.log("Blocked by CORS:", origin);
+      return callback(new Error(`Not allowed by CORS: ${origin}`));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    optionsSuccessStatus: 200,
+  };
 
-  app.options("*", cors());
+  app.use(cors(corsOptions));
 };
