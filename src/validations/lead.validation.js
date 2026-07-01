@@ -14,6 +14,11 @@ const optionalDate = z.preprocess(
   z.coerce.date().optional()
 )
 
+const nullableOptionalDate = z.preprocess(
+  (value) => (value === "" || value === null ? null : value),
+  z.coerce.date().nullable().optional()
+)
+
 const optionalString = (max = 250, defaultValue = "") =>
   z
     .string()
@@ -70,6 +75,13 @@ const sourceSchema = z.enum([
 
 const prioritySchema = z.enum(["low", "medium", "high", "urgent"])
 
+const followUpStatusSchema = z.enum([
+  "Not Set",
+  "Scheduled",
+  "Completed",
+  "Cancelled",
+])
+
 export const createLeadSchema = z.object({
   body: z.object({
     name: z
@@ -91,7 +103,7 @@ export const createLeadSchema = z.object({
       .max(30, "Phone number is too long"),
 
     serviceType: serviceTypeSchema,
-companyWebsite: z.string().optional().default(""),
+
     source: sourceSchema.default("homepage"),
 
     pageUrl: optionalString(500),
@@ -138,8 +150,6 @@ companyWebsite: z.string().optional().default(""),
     flightBookingAssistance: optionalString(20),
     hotelBookingAssistance: optionalString(20),
 
-
-    // Hotel booking inquiry fields
     checkInDate: optionalDate,
     checkOutDate: optionalDate,
     numberOfRooms: optionalPositiveInt(1),
@@ -150,7 +160,6 @@ companyWebsite: z.string().optional().default(""),
     paymentMethod: optionalString(100),
     estimatedTotal: optionalString(100),
 
-    // Car rental inquiry fields
     pickupDate: optionalDate,
     pickupTime: optionalString(50),
     returnTime: optionalString(50),
@@ -174,7 +183,6 @@ companyWebsite: z.string().optional().default(""),
 
     priority: prioritySchema.optional().default("medium"),
 
-    // Honeypot field for spam bots.
     companyWebsite: z.string().optional().default(""),
   }),
 })
@@ -190,6 +198,9 @@ export const getLeadsQuerySchema = z.object({
     serviceType: serviceTypeSchema.optional(),
     source: sourceSchema.optional(),
     priority: prioritySchema.optional(),
+
+    followUpStatus: followUpStatusSchema.optional(),
+    followUp: z.enum(["today", "overdue", "upcoming", "none"]).optional(),
 
     assignedTo: optionalObjectId,
 
@@ -231,6 +242,19 @@ export const updateLeadStatusSchema = z.object({
 
   body: z.object({
     status: leadStatusSchema,
+  }),
+})
+
+export const updateLeadFollowUpSchema = z.object({
+  params: z.object({
+    id: objectIdSchema,
+  }),
+
+  body: z.object({
+    followUpDate: nullableOptionalDate,
+    followUpTime: z.string().trim().max(50).optional(),
+    followUpNote: z.string().trim().max(1000).optional(),
+    followUpStatus: followUpStatusSchema.optional(),
   }),
 })
 

@@ -7,6 +7,16 @@ const escapeRegex = (value) => {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
+const getTodayRange = () => {
+  const start = new Date()
+  start.setHours(0, 0, 0, 0)
+
+  const end = new Date(start)
+  end.setDate(end.getDate() + 1)
+
+  return { start, end }
+}
+
 const sendLeadWhatsAppNotificationsIfAvailable = async (lead) => {
   try {
     const whatsappService = await import("../services/whatsapp.service.js")
@@ -22,14 +32,8 @@ const sendLeadWhatsAppNotificationsIfAvailable = async (lead) => {
 }
 
 export const createLead = asyncHandler(async (req, res) => {
-  if (req.body.companyWebsite) {
-  res.status(400)
-  throw new Error("Invalid request.")
-}
   const { companyWebsite, ...leadData } = req.validated.body
 
-  // Honeypot spam protection.
-  // If bot fills hidden field, silently accept but do not save.
   if (companyWebsite) {
     return res.status(200).json({
       success: true,
@@ -79,6 +83,8 @@ export const getLeads = asyncHandler(async (req, res) => {
     serviceType,
     source,
     priority,
+    followUpStatus,
+    followUp,
     assignedTo,
     includeArchived,
     sort,
@@ -106,8 +112,51 @@ export const getLeads = asyncHandler(async (req, res) => {
     filter.priority = priority
   }
 
+  if (followUpStatus) {
+    filter.followUpStatus = followUpStatus
+  }
+
   if (assignedTo) {
     filter.assignedTo = assignedTo
+  }
+
+  if (followUp) {
+    const { start, end } = getTodayRange()
+
+    if (followUp === "today") {
+      filter.followUpDate = {
+        $gte: start,
+        $lt: end,
+      }
+
+      if (!followUpStatus) {
+        filter.followUpStatus = "Scheduled"
+      }
+    }
+
+    if (followUp === "overdue") {
+      filter.followUpDate = {
+        $lt: start,
+      }
+
+      if (!followUpStatus) {
+        filter.followUpStatus = "Scheduled"
+      }
+    }
+
+    if (followUp === "upcoming") {
+      filter.followUpDate = {
+        $gte: end,
+      }
+
+      if (!followUpStatus) {
+        filter.followUpStatus = "Scheduled"
+      }
+    }
+
+    if (followUp === "none") {
+      filter.followUpDate = null
+    }
   }
 
   if (search) {
@@ -125,7 +174,11 @@ export const getLeads = asyncHandler(async (req, res) => {
       { destination: { $regex: safeSearch, $options: "i" } },
       { visaType: { $regex: safeSearch, $options: "i" } },
       { preferredAirline: { $regex: safeSearch, $options: "i" } },
+      { bookingReference: { $regex: safeSearch, $options: "i" } },
+      { vehicleType: { $regex: safeSearch, $options: "i" } },
+      { rentalType: { $regex: safeSearch, $options: "i" } },
       { currentOccupation: { $regex: safeSearch, $options: "i" } },
+      { followUpNote: { $regex: safeSearch, $options: "i" } },
       { message: { $regex: safeSearch, $options: "i" } },
       { additionalRequirements: { $regex: safeSearch, $options: "i" } },
     ]
@@ -161,6 +214,7 @@ export const getLeadById = asyncHandler(async (req, res) => {
     .populate("assignedTo", "name email role")
     .populate("notes.createdBy", "name email role")
     .populate("statusHistory.changedBy", "name email role")
+    .populate("followUpHistory.updatedBy", "name email role")
 
   if (!lead) {
     res.status(404)
@@ -200,6 +254,66 @@ export const updateLeadStatus = asyncHandler(async (req, res) => {
     success: true,
     message: "Lead status updated successfully.",
     lead,
+  })
+})
+
+export const updateLeadFollowUp = asyncHandler(async (req, res) => {
+  const { id } = req.validated.params
+  const { followUpDate, followUpTime, followUpNote, followUpStatus } =
+    req.validated.body
+
+  const lead = await Lead.findById(id)
+
+  if (!lead) {
+    res.status(404)
+    throw new Error("Lead not found.")
+  }
+
+  if (followUpDate !== undefined) {
+    lead.followUpDate = followUpDate
+  }
+
+  if (followUpTime !== undefined) {
+    lead.followUpTime = followUpTime
+  }
+
+  if (followUpNote !== undefined) {
+    lead.followUpNote = followUpNote
+  }
+
+  if (followUpStatus !== undefined) {
+    lead.followUpStatus = followUpStatus
+  } else if (followUpDate === null) {
+    lead.followUpStatus = "Not Set"
+  } else if (followUpDate && lead.followUpStatus === "Not Set") {
+    lead.followUpStatus = "Scheduled"
+  }
+
+  if (!lead.followUpDate && lead.followUpStatus === "Scheduled") {
+    lead.followUpStatus = "Not Set"
+  }
+
+  lead.followUpHistory.push({
+    followUpDate: lead.followUpDate,
+    followUpTime: lead.followUpTime,
+    followUpNote: lead.followUpNote,
+    followUpStatus: lead.followUpStatus,
+    updatedBy: req.admin._id,
+    updatedAt: new Date(),
+  })
+
+  await lead.save()
+
+  const updatedLead = await Lead.findById(id)
+    .populate("assignedTo", "name email role")
+    .populate("notes.createdBy", "name email role")
+    .populate("statusHistory.changedBy", "name email role")
+    .populate("followUpHistory.updatedBy", "name email role")
+
+  res.status(200).json({
+    success: true,
+    message: "Follow-up updated successfully.",
+    lead: updatedLead,
   })
 })
 
@@ -285,8 +399,7 @@ export const archiveLead = asyncHandler(async (req, res) => {
 })
 
 export const getLeadStats = asyncHandler(async (req, res) => {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
+  const { start, end } = getTodayRange()
 
   const [
     totalLeads,
@@ -295,12 +408,16 @@ export const getLeadStats = asyncHandler(async (req, res) => {
     serviceStats,
     sourceStats,
     priorityStats,
+    todayFollowUps,
+    overdueFollowUps,
+    upcomingFollowUps,
+    noFollowUps,
   ] = await Promise.all([
     Lead.countDocuments({ isArchived: false }),
 
     Lead.countDocuments({
       isArchived: false,
-      createdAt: { $gte: today },
+      createdAt: { $gte: start },
     }),
 
     Lead.aggregate([
@@ -322,6 +439,36 @@ export const getLeadStats = asyncHandler(async (req, res) => {
       { $match: { isArchived: false } },
       { $group: { _id: "$priority", count: { $sum: 1 } } },
     ]),
+
+    Lead.countDocuments({
+      isArchived: false,
+      followUpStatus: "Scheduled",
+      followUpDate: {
+        $gte: start,
+        $lt: end,
+      },
+    }),
+
+    Lead.countDocuments({
+      isArchived: false,
+      followUpStatus: "Scheduled",
+      followUpDate: {
+        $lt: start,
+      },
+    }),
+
+    Lead.countDocuments({
+      isArchived: false,
+      followUpStatus: "Scheduled",
+      followUpDate: {
+        $gte: end,
+      },
+    }),
+
+    Lead.countDocuments({
+      isArchived: false,
+      $or: [{ followUpDate: null }, { followUpStatus: "Not Set" }],
+    }),
   ])
 
   const formatStats = (items) => {
@@ -340,6 +487,12 @@ export const getLeadStats = asyncHandler(async (req, res) => {
       byServiceType: formatStats(serviceStats),
       bySource: formatStats(sourceStats),
       byPriority: formatStats(priorityStats),
+      followUps: {
+        today: todayFollowUps,
+        overdue: overdueFollowUps,
+        upcoming: upcomingFollowUps,
+        none: noFollowUps,
+      },
     },
   })
 })

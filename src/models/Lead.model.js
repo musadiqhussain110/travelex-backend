@@ -40,6 +40,13 @@ export const LEAD_SOURCES = [
   "other",
 ]
 
+export const FOLLOW_UP_STATUSES = [
+  "Not Set",
+  "Scheduled",
+  "Completed",
+  "Cancelled",
+]
+
 const noteSchema = new mongoose.Schema(
   {
     text: {
@@ -86,6 +93,49 @@ const statusHistorySchema = new mongoose.Schema(
   },
   {
     _id: false,
+  }
+)
+
+const followUpHistorySchema = new mongoose.Schema(
+  {
+    followUpDate: {
+      type: Date,
+      default: null,
+    },
+
+    followUpTime: {
+      type: String,
+      trim: true,
+      maxlength: [50, "Follow-up time cannot exceed 50 characters"],
+      default: "",
+    },
+
+    followUpNote: {
+      type: String,
+      trim: true,
+      maxlength: [1000, "Follow-up note cannot exceed 1000 characters"],
+      default: "",
+    },
+
+    followUpStatus: {
+      type: String,
+      enum: FOLLOW_UP_STATUSES,
+      default: "Not Set",
+    },
+
+    updatedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Admin",
+      default: null,
+    },
+
+    updatedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  {
+    _id: true,
   }
 )
 
@@ -341,7 +391,6 @@ const leadSchema = new mongoose.Schema(
       default: "",
     },
 
-    // Hotel booking inquiry fields
     checkInDate: {
       type: Date,
       default: null,
@@ -399,7 +448,6 @@ const leadSchema = new mongoose.Schema(
       default: "",
     },
 
-    // Car rental inquiry fields
     pickupDate: {
       type: Date,
       default: null,
@@ -527,6 +575,28 @@ const leadSchema = new mongoose.Schema(
       default: null,
     },
 
+    followUpTime: {
+      type: String,
+      trim: true,
+      maxlength: [50, "Follow-up time cannot exceed 50 characters"],
+      default: "",
+    },
+
+    followUpNote: {
+      type: String,
+      trim: true,
+      maxlength: [1000, "Follow-up note cannot exceed 1000 characters"],
+      default: "",
+    },
+
+    followUpStatus: {
+      type: String,
+      enum: FOLLOW_UP_STATUSES,
+      default: "Not Set",
+    },
+
+    followUpHistory: [followUpHistorySchema],
+
     isArchived: {
       type: Boolean,
       default: false,
@@ -563,7 +633,9 @@ leadSchema.index({ source: 1 })
 leadSchema.index({ priority: 1 })
 leadSchema.index({ assignedTo: 1 })
 leadSchema.index({ followUpDate: 1 })
+leadSchema.index({ followUpStatus: 1 })
 leadSchema.index({ createdAt: -1 })
+
 leadSchema.index({
   name: "text",
   email: "text",
@@ -577,7 +649,6 @@ leadSchema.index({
   visaType: "text",
   preferredAirline: "text",
   currentOccupation: "text",
-
   bookingReference: "text",
   roomType: "text",
   mealPlan: "text",
