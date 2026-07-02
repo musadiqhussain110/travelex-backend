@@ -82,6 +82,25 @@ const followUpStatusSchema = z.enum([
   "Cancelled",
 ])
 
+const followUpFilterSchema = z.enum(["today", "overdue", "upcoming", "none"])
+
+const leadSortSchema = z.enum([
+  "-createdAt",
+  "createdAt",
+  "-updatedAt",
+  "updatedAt",
+  "name",
+  "-name",
+  "status",
+  "-status",
+  "serviceType",
+  "-serviceType",
+  "priority",
+  "-priority",
+  "followUpDate",
+  "-followUpDate",
+])
+
 export const createLeadSchema = z.object({
   body: z.object({
     name: z
@@ -190,42 +209,31 @@ export const createLeadSchema = z.object({
 export const getLeadsQuerySchema = z.object({
   query: z.object({
     page: z.coerce.number().int().min(1).optional().default(1),
-    limit: z.coerce.number().int().min(1).max(100).optional().default(10),
 
-    search: z.string().trim().optional().default(""),
+    limit: z.coerce.number().int().min(1).max(100).optional().default(25),
+
+    search: z.string().trim().max(250).optional().default(""),
 
     status: leadStatusSchema.optional(),
+
     serviceType: serviceTypeSchema.optional(),
+
     source: sourceSchema.optional(),
+
     priority: prioritySchema.optional(),
 
     followUpStatus: followUpStatusSchema.optional(),
-    followUp: z.enum(["today", "overdue", "upcoming", "none"]).optional(),
+
+    followUp: followUpFilterSchema.optional(),
 
     assignedTo: optionalObjectId,
 
     includeArchived: z
-      .preprocess((value) => value === "true", z.boolean())
+      .preprocess((value) => value === true || value === "true", z.boolean())
       .optional()
       .default(false),
 
-    sort: z
-      .enum([
-        "-createdAt",
-        "createdAt",
-        "-updatedAt",
-        "updatedAt",
-        "status",
-        "-status",
-        "serviceType",
-        "-serviceType",
-        "priority",
-        "-priority",
-        "followUpDate",
-        "-followUpDate",
-      ])
-      .optional()
-      .default("-createdAt"),
+    sort: leadSortSchema.optional().default("-createdAt"),
   }),
 })
 
@@ -252,8 +260,19 @@ export const updateLeadFollowUpSchema = z.object({
 
   body: z.object({
     followUpDate: nullableOptionalDate,
-    followUpTime: z.string().trim().max(50).optional(),
-    followUpNote: z.string().trim().max(1000).optional(),
+
+    followUpTime: z
+      .string()
+      .trim()
+      .max(50, "Follow-up time cannot exceed 50 characters")
+      .optional(),
+
+    followUpNote: z
+      .string()
+      .trim()
+      .max(1000, "Follow-up note cannot exceed 1000 characters")
+      .optional(),
+
     followUpStatus: followUpStatusSchema.optional(),
   }),
 })

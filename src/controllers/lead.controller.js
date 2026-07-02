@@ -3,8 +3,58 @@ import Admin from "../models/Admin.model.js"
 import { asyncHandler } from "../utils/asyncHandler.js"
 import { createNotification } from "../services/notification.service.js"
 
-const escapeRegex = (value) => {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+const DEFAULT_PAGE = 1
+const DEFAULT_LIMIT = 25
+const MAX_LIMIT = 100
+
+const allowedSortValues = new Set([
+  "createdAt",
+  "-createdAt",
+  "updatedAt",
+  "-updatedAt",
+  "followUpDate",
+  "-followUpDate",
+  "status",
+  "-status",
+  "priority",
+  "-priority",
+  "serviceType",
+  "-serviceType",
+  "name",
+  "-name",
+])
+
+const escapeRegex = (value = "") => {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+const getPositiveNumber = (value, fallback) => {
+  const number = Number(value)
+
+  if (!Number.isFinite(number) || number < 1) {
+    return fallback
+  }
+
+  return Math.floor(number)
+}
+
+const getPaginationParams = (page, limit) => {
+  const safePage = getPositiveNumber(page, DEFAULT_PAGE)
+  const requestedLimit = getPositiveNumber(limit, DEFAULT_LIMIT)
+  const safeLimit = Math.min(requestedLimit, MAX_LIMIT)
+  const skip = (safePage - 1) * safeLimit
+
+  return {
+    page: safePage,
+    limit: safeLimit,
+    skip,
+  }
+}
+
+const getSortValue = (sort) => {
+  if (!sort) return "-createdAt"
+
+  return allowedSortValues.has(sort) ? sort : "-createdAt"
 }
 
 const getTodayRange = () => {
@@ -17,67 +67,8 @@ const getTodayRange = () => {
   return { start, end }
 }
 
-const sendLeadWhatsAppNotificationsIfAvailable = async (lead) => {
-  try {
-    const whatsappService = await import("../services/whatsapp.service.js")
-
-    if (whatsappService?.sendLeadWhatsAppNotifications) {
-      await whatsappService.sendLeadWhatsAppNotifications(lead)
-    }
-  } catch (error) {
-    if (error.code !== "ERR_MODULE_NOT_FOUND") {
-      console.error("WhatsApp lead notification error:", error.message)
-    }
-  }
-}
-
-export const createLead = asyncHandler(async (req, res) => {
-  const { companyWebsite, ...leadData } = req.validated.body
-
-  if (companyWebsite) {
-    return res.status(200).json({
-      success: true,
-      message: "Inquiry submitted successfully.",
-    })
-  }
-
-  const lead = await Lead.create({
-    ...leadData,
-    ipAddress: req.ip || "",
-    userAgent: req.get("user-agent") || "",
-  })
-
-  await createNotification({
-    title: "New lead received",
-    message: `${lead.name} submitted a new ${lead.serviceType} inquiry.`,
-    type: "lead",
-    priority: "high",
-    relatedModel: "Lead",
-    relatedId: lead._id,
-    actionUrl: `/admin/leads/${lead._id}`,
-  })
-
-  await sendLeadWhatsAppNotificationsIfAvailable(lead)
-
-  res.status(201).json({
-    success: true,
-    message: "Inquiry submitted successfully.",
-    lead: {
-      id: lead._id,
-      name: lead.name,
-      email: lead.email,
-      phone: lead.phone,
-      serviceType: lead.serviceType,
-      status: lead.status,
-      createdAt: lead.createdAt,
-    },
-  })
-})
-
-export const getLeads = asyncHandler(async (req, res) => {
+const buildLeadFilter = (query = {}) => {
   const {
-    page,
-    limit,
     search,
     status,
     serviceType,
@@ -87,12 +78,15 @@ export const getLeads = asyncHandler(async (req, res) => {
     followUp,
     assignedTo,
     includeArchived,
-    sort,
-  } = req.validated.query
+  } = query
 
   const filter = {}
+  const andConditions = []
 
-  if (!includeArchived) {
+  const shouldIncludeArchived =
+    includeArchived === true || includeArchived === "true"
+
+  if (!shouldIncludeArchived) {
     filter.isArchived = false
   }
 
@@ -155,55 +149,177 @@ export const getLeads = asyncHandler(async (req, res) => {
     }
 
     if (followUp === "none") {
-      filter.followUpDate = null
+      andConditions.push({
+        $or: [{ followUpDate: null }, { followUpStatus: "Not Set" }],
+      })
     }
   }
 
-  if (search) {
-    const safeSearch = escapeRegex(search)
+  if (search?.trim()) {
+    const safeSearch = escapeRegex(search.trim())
 
-    filter.$or = [
-      { name: { $regex: safeSearch, $options: "i" } },
-      { email: { $regex: safeSearch, $options: "i" } },
-      { phone: { $regex: safeSearch, $options: "i" } },
-      { city: { $regex: safeSearch, $options: "i" } },
-      { nationality: { $regex: safeSearch, $options: "i" } },
-      { departureCity: { $regex: safeSearch, $options: "i" } },
-      { destinationCity: { $regex: safeSearch, $options: "i" } },
-      { destinationCountry: { $regex: safeSearch, $options: "i" } },
-      { destination: { $regex: safeSearch, $options: "i" } },
-      { visaType: { $regex: safeSearch, $options: "i" } },
-      { preferredAirline: { $regex: safeSearch, $options: "i" } },
-      { bookingReference: { $regex: safeSearch, $options: "i" } },
-      { vehicleType: { $regex: safeSearch, $options: "i" } },
-      { rentalType: { $regex: safeSearch, $options: "i" } },
-      { currentOccupation: { $regex: safeSearch, $options: "i" } },
-      { followUpNote: { $regex: safeSearch, $options: "i" } },
-      { message: { $regex: safeSearch, $options: "i" } },
-      { additionalRequirements: { $regex: safeSearch, $options: "i" } },
-    ]
+    andConditions.push({
+      $or: [
+        { name: { $regex: safeSearch, $options: "i" } },
+        { email: { $regex: safeSearch, $options: "i" } },
+        { phone: { $regex: safeSearch, $options: "i" } },
+        { city: { $regex: safeSearch, $options: "i" } },
+        { nationality: { $regex: safeSearch, $options: "i" } },
+        { departureCity: { $regex: safeSearch, $options: "i" } },
+        { preferredDepartureCity: { $regex: safeSearch, $options: "i" } },
+        { destinationCity: { $regex: safeSearch, $options: "i" } },
+        { destinationCountry: { $regex: safeSearch, $options: "i" } },
+        { destination: { $regex: safeSearch, $options: "i" } },
+        { visaType: { $regex: safeSearch, $options: "i" } },
+        { packageRequired: { $regex: safeSearch, $options: "i" } },
+        { hotelCategory: { $regex: safeSearch, $options: "i" } },
+        { preferredHotel: { $regex: safeSearch, $options: "i" } },
+        { preferredAirline: { $regex: safeSearch, $options: "i" } },
+        { bookingReference: { $regex: safeSearch, $options: "i" } },
+        { vehicleType: { $regex: safeSearch, $options: "i" } },
+        { rentalType: { $regex: safeSearch, $options: "i" } },
+        { pickupLocation: { $regex: safeSearch, $options: "i" } },
+        { dropoffLocation: { $regex: safeSearch, $options: "i" } },
+        { currentOccupation: { $regex: safeSearch, $options: "i" } },
+        { followUpNote: { $regex: safeSearch, $options: "i" } },
+        { message: { $regex: safeSearch, $options: "i" } },
+        { additionalRequirements: { $regex: safeSearch, $options: "i" } },
+        { source: { $regex: safeSearch, $options: "i" } },
+      ],
+    })
   }
 
-  const skip = (page - 1) * limit
+  if (andConditions.length) {
+    filter.$and = andConditions
+  }
+
+  return filter
+}
+
+const buildPaginationMeta = ({ total, page, limit, count, sort }) => {
+  const totalPages = Math.max(Math.ceil(total / limit), 1)
+  const from = total === 0 ? 0 : (page - 1) * limit + 1
+  const to = total === 0 ? 0 : from + count - 1
+
+  return {
+    total,
+    page,
+    limit,
+    totalPages,
+    hasNextPage: page < totalPages,
+    hasPrevPage: page > 1,
+    nextPage: page < totalPages ? page + 1 : null,
+    prevPage: page > 1 ? page - 1 : null,
+    from,
+    to,
+    sort,
+  }
+}
+
+const populateLeadListQuery = (query) => {
+  return query.populate("assignedTo", "name email role")
+}
+
+const sendLeadWhatsAppNotificationsIfAvailable = async (lead) => {
+  try {
+    const whatsappService = await import("../services/whatsapp.service.js")
+
+    if (whatsappService?.sendLeadWhatsAppNotifications) {
+      await whatsappService.sendLeadWhatsAppNotifications(lead)
+    }
+  } catch (error) {
+    if (error.code !== "ERR_MODULE_NOT_FOUND") {
+      console.error("WhatsApp lead notification error:", error.message)
+    }
+  }
+}
+
+export const createLead = asyncHandler(async (req, res) => {
+  const { companyWebsite, ...leadData } = req.validated.body
+
+  if (companyWebsite) {
+    return res.status(200).json({
+      success: true,
+      message: "Inquiry submitted successfully.",
+    })
+  }
+
+  const lead = await Lead.create({
+    ...leadData,
+    ipAddress: req.ip || "",
+    userAgent: req.get("user-agent") || "",
+  })
+
+  await createNotification({
+    title: "New lead received",
+    message: `${lead.name} submitted a new ${lead.serviceType} inquiry.`,
+    type: "lead",
+    priority: "high",
+    relatedModel: "Lead",
+    relatedId: lead._id,
+    actionUrl: `/admin/leads/${lead._id}`,
+  })
+
+  await sendLeadWhatsAppNotificationsIfAvailable(lead)
+
+  res.status(201).json({
+    success: true,
+    message: "Inquiry submitted successfully.",
+    lead: {
+      id: lead._id,
+      name: lead.name,
+      email: lead.email,
+      phone: lead.phone,
+      serviceType: lead.serviceType,
+      status: lead.status,
+      createdAt: lead.createdAt,
+    },
+  })
+})
+
+export const getLeads = asyncHandler(async (req, res) => {
+  const { page, limit, skip } = getPaginationParams(
+    req.validated.query.page,
+    req.validated.query.limit
+  )
+
+  const sort = getSortValue(req.validated.query.sort)
+  const filter = buildLeadFilter(req.validated.query)
 
   const [leads, total] = await Promise.all([
-    Lead.find(filter)
-      .populate("assignedTo", "name email role")
-      .sort(sort)
-      .skip(skip)
-      .limit(limit)
-      .lean(),
+    populateLeadListQuery(
+      Lead.find(filter).sort(sort).skip(skip).limit(limit)
+    ).lean(),
 
     Lead.countDocuments(filter),
   ])
 
+  const pagination = buildPaginationMeta({
+    total,
+    page,
+    limit,
+    count: leads.length,
+    sort,
+  })
+
   res.status(200).json({
     success: true,
+
+    // Backward-compatible fields for your current frontend
     count: leads.length,
     total,
     page,
-    pages: Math.ceil(total / limit),
+    pages: pagination.totalPages,
     leads,
+
+    // New professional pagination object for scalable frontend table
+    pagination,
+
+    // Optional structured response for future frontend usage
+    data: {
+      leads,
+      pagination,
+    },
   })
 })
 
@@ -250,10 +366,16 @@ export const updateLeadStatus = asyncHandler(async (req, res) => {
     await lead.save()
   }
 
+  const updatedLead = await Lead.findById(id)
+    .populate("assignedTo", "name email role")
+    .populate("notes.createdBy", "name email role")
+    .populate("statusHistory.changedBy", "name email role")
+    .populate("followUpHistory.updatedBy", "name email role")
+
   res.status(200).json({
     success: true,
     message: "Lead status updated successfully.",
-    lead,
+    lead: updatedLead,
   })
 })
 
@@ -336,10 +458,11 @@ export const addLeadNote = asyncHandler(async (req, res) => {
 
   await lead.save()
 
-  const updatedLead = await Lead.findById(id).populate(
-    "notes.createdBy",
-    "name email role"
-  )
+  const updatedLead = await Lead.findById(id)
+    .populate("assignedTo", "name email role")
+    .populate("notes.createdBy", "name email role")
+    .populate("statusHistory.changedBy", "name email role")
+    .populate("followUpHistory.updatedBy", "name email role")
 
   res.status(201).json({
     success: true,
@@ -397,7 +520,85 @@ export const archiveLead = asyncHandler(async (req, res) => {
     lead,
   })
 })
+const escapeCsvValue = (value = "") => {
+  const stringValue =
+    value === undefined || value === null ? "" : String(value)
 
+  return `"${stringValue.replaceAll('"', '""')}"`
+}
+
+const formatCsvDate = (date) => {
+  if (!date) return ""
+  return new Date(date).toLocaleString()
+}
+
+const getLeadDestination = (lead = {}) => {
+  return (
+    lead.destination ||
+    lead.destinationCountry ||
+    lead.destinationCity ||
+    lead.preferredHotel ||
+    ""
+  )
+}
+
+export const exportLeadsCsv = asyncHandler(async (req, res) => {
+  const filter = buildLeadFilter(req.validated.query)
+  const sort = getSortValue(req.validated.query.sort)
+
+  const leads = await Lead.find(filter)
+    .populate("assignedTo", "name email role")
+    .sort(sort)
+    .lean()
+
+  const columns = [
+    "Name",
+    "Phone",
+    "Email",
+    "Service",
+    "Status",
+    "Priority",
+    "Follow-up Status",
+    "Follow-up Date",
+    "Follow-up Time",
+    "Assigned To",
+    "City",
+    "Destination",
+    "Source",
+    "Created At",
+  ]
+
+  const rows = leads.map((lead) => [
+    lead.name || "",
+    lead.phone || "",
+    lead.email || "",
+    lead.serviceType || "",
+    lead.status || "",
+    lead.priority || "",
+    lead.followUpStatus || "Not Set",
+    formatCsvDate(lead.followUpDate),
+    lead.followUpTime || "",
+    lead.assignedTo?.name || "",
+    lead.city || "",
+    getLeadDestination(lead),
+    lead.source || "",
+    formatCsvDate(lead.createdAt),
+  ])
+
+  const csvContent = [columns, ...rows]
+    .map((row) => row.map(escapeCsvValue).join(","))
+    .join("\n")
+
+  const timestamp = new Date().toISOString().slice(0, 10)
+
+  res.setHeader("Content-Type", "text/csv; charset=utf-8")
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename="travelex-leads-${timestamp}.csv"`
+  )
+
+  res.status(200).send(csvContent)
+})
 export const getLeadStats = asyncHandler(async (req, res) => {
   const { start, end } = getTodayRange()
 
@@ -473,7 +674,10 @@ export const getLeadStats = asyncHandler(async (req, res) => {
 
   const formatStats = (items) => {
     return items.reduce((acc, item) => {
-      acc[item._id] = item.count
+      if (item._id) {
+        acc[item._id] = item.count
+      }
+
       return acc
     }, {})
   }

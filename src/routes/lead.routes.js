@@ -3,6 +3,7 @@ import express from "express"
 import {
   createLead,
   getLeads,
+  exportLeadsCsv,
   getLeadById,
   updateLeadStatus,
   updateLeadFollowUp,
@@ -32,6 +33,13 @@ router.post("/", validate(createLeadSchema), createLead)
 router.get("/", protect, validate(getLeadsQuerySchema), getLeads)
 
 router.get("/stats", protect, getLeadStats)
+
+router.get(
+  "/export",
+  protect,
+  validate(getLeadsQuerySchema),
+  exportLeadsCsv
+)
 
 router.get("/:id", protect, validate(leadIdParamSchema), getLeadById)
 

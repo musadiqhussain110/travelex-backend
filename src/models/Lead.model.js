@@ -380,14 +380,20 @@ const leadSchema = new mongoose.Schema(
     flightBookingAssistance: {
       type: String,
       trim: true,
-      maxlength: [20, "Flight booking assistance answer cannot exceed 20 characters"],
+      maxlength: [
+        20,
+        "Flight booking assistance answer cannot exceed 20 characters",
+      ],
       default: "",
     },
 
     hotelBookingAssistance: {
       type: String,
       trim: true,
-      maxlength: [20, "Hotel booking assistance answer cannot exceed 20 characters"],
+      maxlength: [
+        20,
+        "Hotel booking assistance answer cannot exceed 20 characters",
+      ],
       default: "",
     },
 
@@ -537,7 +543,10 @@ const leadSchema = new mongoose.Schema(
     additionalRequirements: {
       type: String,
       trim: true,
-      maxlength: [3000, "Additional requirements cannot exceed 3000 characters"],
+      maxlength: [
+        3000,
+        "Additional requirements cannot exceed 3000 characters",
+      ],
       default: "",
     },
 
@@ -627,14 +636,34 @@ leadSchema.pre("save", function () {
   }
 })
 
-leadSchema.index({ status: 1 })
-leadSchema.index({ serviceType: 1 })
-leadSchema.index({ source: 1 })
-leadSchema.index({ priority: 1 })
-leadSchema.index({ assignedTo: 1 })
-leadSchema.index({ followUpDate: 1 })
-leadSchema.index({ followUpStatus: 1 })
-leadSchema.index({ createdAt: -1 })
+/*
+|--------------------------------------------------------------------------
+| Scalable CRM indexes
+|--------------------------------------------------------------------------
+| These indexes support server-side pagination, filtering, sorting,
+| dashboard stats, follow-up queues, consultant assignment, and search.
+|--------------------------------------------------------------------------
+*/
+
+leadSchema.index({ isArchived: 1, createdAt: -1 })
+leadSchema.index({ isArchived: 1, updatedAt: -1 })
+
+leadSchema.index({ isArchived: 1, status: 1, createdAt: -1 })
+leadSchema.index({ isArchived: 1, serviceType: 1, createdAt: -1 })
+leadSchema.index({ isArchived: 1, priority: 1, createdAt: -1 })
+leadSchema.index({ isArchived: 1, source: 1, createdAt: -1 })
+
+leadSchema.index({ isArchived: 1, serviceType: 1, status: 1, createdAt: -1 })
+leadSchema.index({ isArchived: 1, status: 1, priority: 1, createdAt: -1 })
+
+leadSchema.index({ isArchived: 1, followUpStatus: 1, followUpDate: 1 })
+leadSchema.index({ isArchived: 1, followUpDate: 1 })
+leadSchema.index({ isArchived: 1, assignedTo: 1, createdAt: -1 })
+leadSchema.index({ isArchived: 1, assignedTo: 1, status: 1, createdAt: -1 })
+
+leadSchema.index({ phone: 1 })
+leadSchema.index({ email: 1 })
+leadSchema.index({ name: 1 })
 
 leadSchema.index({
   name: "text",
@@ -647,6 +676,9 @@ leadSchema.index({
   destinationCountry: "text",
   destination: "text",
   visaType: "text",
+  packageRequired: "text",
+  hotelCategory: "text",
+  preferredHotel: "text",
   preferredAirline: "text",
   currentOccupation: "text",
   bookingReference: "text",
@@ -655,6 +687,9 @@ leadSchema.index({
   vehicleType: "text",
   rentalType: "text",
   driverOption: "text",
+  pickupLocation: "text",
+  dropoffLocation: "text",
+  followUpNote: "text",
   message: "text",
   additionalRequirements: "text",
 })
