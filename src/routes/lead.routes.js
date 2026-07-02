@@ -14,7 +14,11 @@ import {
   syncLeadPrioritiesNow,
 } from "../controllers/lead.controller.js"
 
-import { protect, authorize } from "../middleware/auth.middleware.js"
+import {
+  protect,
+  requireLeadAccess,
+} from "../middleware/auth.middleware.js"
+
 import { validate } from "../middleware/validate.middleware.js"
 
 import {
@@ -29,61 +33,93 @@ import {
 
 const router = express.Router()
 
+// Public lead creation from website forms
 router.post("/", validate(createLeadSchema), createLead)
 
-router.get("/", protect, validate(getLeadsQuerySchema), getLeads)
+// View leads
+router.get(
+  "/",
+  protect,
+  requireLeadAccess("view"),
+  validate(getLeadsQuerySchema),
+  getLeads
+)
 
-router.get("/stats", protect, getLeadStats)
+// View lead stats
+router.get(
+  "/stats",
+  protect,
+  requireLeadAccess("view"),
+  getLeadStats
+)
 
+// Export leads CSV
 router.get(
   "/export",
   protect,
+  requireLeadAccess("export"),
   validate(getLeadsQuerySchema),
   exportLeadsCsv
 )
 
+// Sync priorities
 router.patch(
   "/sync-priorities",
   protect,
-  authorize("superAdmin", "admin"),
+  requireLeadAccess("update"),
   syncLeadPrioritiesNow
 )
 
-router.get("/:id", protect, validate(leadIdParamSchema), getLeadById)
+// View single lead
+router.get(
+  "/:id",
+  protect,
+  requireLeadAccess("view"),
+  validate(leadIdParamSchema),
+  getLeadById
+)
 
+// Update lead status
 router.patch(
   "/:id/status",
   protect,
+  requireLeadAccess("update"),
   validate(updateLeadStatusSchema),
   updateLeadStatus
 )
 
+// Update lead follow-up
 router.patch(
   "/:id/follow-up",
   protect,
+  requireLeadAccess("update"),
   validate(updateLeadFollowUpSchema),
   updateLeadFollowUp
 )
 
+// Add lead note
 router.post(
   "/:id/notes",
   protect,
+  requireLeadAccess("update"),
   validate(addLeadNoteSchema),
   addLeadNote
 )
 
+// Assign lead
 router.patch(
   "/:id/assign",
   protect,
-  authorize("superAdmin", "admin"),
+  requireLeadAccess("assign"),
   validate(assignLeadSchema),
   assignLead
 )
 
+// Archive lead
 router.patch(
   "/:id/archive",
   protect,
-  authorize("superAdmin", "admin"),
+  requireLeadAccess("archive"),
   validate(leadIdParamSchema),
   archiveLead
 )
