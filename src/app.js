@@ -23,6 +23,7 @@ import mediaRoutes from "./routes/media.routes.js"
 import notificationRoutes from "./routes/notification.routes.js"
 import dashboardRoutes from "./routes/dashboard.routes.js"
 import whatsappRoutes from "./routes/whatsapp.routes.js"
+import teamRoutes from "./routes/team.routes.js"
 
 const app = express()
 
@@ -99,7 +100,7 @@ app.use("/api/v1/media", mediaRoutes)
 app.use("/api/v1/notifications", notificationRoutes)
 app.use("/api/v1/dashboard", dashboardRoutes)
 app.use("/api/v1/whatsapp", whatsappRoutes)
-
+app.use("/api/v1/team", teamRoutes)
 app.use(notFound)
 app.use(errorHandler)
 
