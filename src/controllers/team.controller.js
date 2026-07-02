@@ -58,6 +58,75 @@ const buildPaginationMeta = ({ total, page, limit, count }) => {
   }
 }
 
+const throwError = (message, statusCode = 400) => {
+  const error = new Error(message)
+  error.statusCode = statusCode
+  throw error
+}
+
+const getPermissionTemplate = () => {
+  return Admin.getDefaultPermissions("superAdmin")
+}
+
+const normalizePermissionShape = (requestedPermissions, fallbackRole = "viewer") => {
+  const template = getPermissionTemplate()
+  const roleDefaults = Admin.getDefaultPermissions(fallbackRole)
+  const normalized = {}
+
+  Object.entries(template).forEach(([moduleName, moduleActions]) => {
+    normalized[moduleName] = {}
+
+    Object.entries(moduleActions || {}).forEach(([actionName]) => {
+      const requestedValue =
+        requestedPermissions?.[moduleName]?.[actionName]
+
+      if (typeof requestedValue === "boolean") {
+        normalized[moduleName][actionName] = requestedValue
+        return
+      }
+
+      normalized[moduleName][actionName] = Boolean(
+        roleDefaults?.[moduleName]?.[actionName]
+      )
+    })
+  })
+
+  return normalized
+}
+
+const limitPermissionsByActor = (
+  actor,
+  requestedPermissions,
+  fallbackRole = "viewer"
+) => {
+  const normalizedPermissions = normalizePermissionShape(
+    requestedPermissions,
+    fallbackRole
+  )
+
+  if (actor.role === "superAdmin") {
+    return normalizedPermissions
+  }
+
+  const limitedPermissions = {}
+
+  Object.entries(normalizedPermissions).forEach(([moduleName, actions]) => {
+    limitedPermissions[moduleName] = {}
+
+    Object.entries(actions || {}).forEach(([actionName, value]) => {
+      const actorCanDoThis = Boolean(
+        actor.permissions?.[moduleName]?.[actionName]
+      )
+
+      limitedPermissions[moduleName][actionName] = Boolean(
+        value && actorCanDoThis
+      )
+    })
+  })
+
+  return limitedPermissions
+}
+
 const getSafeMemberPayload = (member) => {
   return {
     id: member._id,
@@ -66,10 +135,7 @@ const getSafeMemberPayload = (member) => {
     email: member.email,
     role: member.role,
     roleLabel: roleLabels[member.role] || member.role,
-    permissions:
-      member.permissions && Object.keys(member.permissions).length
-        ? member.permissions
-        : Admin.getDefaultPermissions(member.role),
+    permissions: normalizePermissionShape(member.permissions, member.role),
     isActive: member.isActive,
     lastLogin: member.lastLogin,
     lastLoginIp: member.lastLoginIp,
@@ -84,17 +150,13 @@ const ensureCanManageTargetMember = ({ actor, targetMember, nextRole }) => {
   if (actor.role === "superAdmin") return
 
   if (targetMember?.role === "superAdmin" || nextRole === "superAdmin") {
-    const error = new Error("Only Super Admin can manage Super Admin accounts.")
-    error.statusCode = 403
-    throw error
+    throwError("Only Super Admin can manage Super Admin accounts.", 403)
   }
 }
 
 const ensureNotSelfDeactivate = ({ actor, targetId, isActive }) => {
   if (String(actor._id) === String(targetId) && isActive === false) {
-    const error = new Error("You cannot deactivate your own account.")
-    error.statusCode = 400
-    throw error
+    throwError("You cannot deactivate your own account.", 400)
   }
 }
 
@@ -107,23 +169,15 @@ const ensureLastSuperAdminNotDisabled = async ({ targetMember, isActive }) => {
   })
 
   if (activeSuperAdmins <= 1) {
-    const error = new Error("At least one active Super Admin is required.")
-    error.statusCode = 400
-    throw error
+    throwError("At least one active Super Admin is required.", 400)
   }
-}
-
-const throwError = (message, statusCode = 400) => {
-  const error = new Error(message)
-  error.statusCode = statusCode
-  throw error
 }
 
 export const getTeamAccessOptions = asyncHandler(async (req, res) => {
   const roles = ["superAdmin", "admin", "consultant", "viewer"].map((role) => ({
     value: role,
     label: roleLabels[role],
-    permissions: Admin.getDefaultPermissions(role),
+    permissions: normalizePermissionShape(null, role),
   }))
 
   res.status(200).json({
@@ -173,21 +227,23 @@ export const listTeamMembers = asyncHandler(async (req, res) => {
     Admin.countDocuments(filter),
   ])
 
+  const safeMembers = members.map(getSafeMemberPayload)
+
   const pagination = buildPaginationMeta({
     total,
     page,
     limit,
-    count: members.length,
+    count: safeMembers.length,
   })
 
   res.status(200).json({
     success: true,
-    count: members.length,
+    count: safeMembers.length,
     total,
-    members,
+    members: safeMembers,
     pagination,
     data: {
-      members,
+      members: safeMembers,
       pagination,
     },
   })
@@ -220,7 +276,9 @@ export const getTeamMemberById = asyncHandler(async (req, res) => {
 export const createTeamMember = asyncHandler(async (req, res) => {
   const { name, email, password, role, permissions } = req.validated.body
 
-  if (role === "superAdmin" && req.admin.role !== "superAdmin") {
+  const selectedRole = role || "consultant"
+
+  if (selectedRole === "superAdmin" && req.admin.role !== "superAdmin") {
     res.status(403)
     throw new Error("Only Super Admin can create another Super Admin.")
   }
@@ -234,14 +292,18 @@ export const createTeamMember = asyncHandler(async (req, res) => {
     throw new Error("A team member with this email already exists.")
   }
 
-  const selectedRole = role || "consultant"
+  const safePermissions = limitPermissionsByActor(
+    req.admin,
+    permissions,
+    selectedRole
+  )
 
   const member = await Admin.create({
     name,
     email: normalizedEmail,
     password,
     role: selectedRole,
-    permissions: permissions || Admin.getDefaultPermissions(selectedRole),
+    permissions: safePermissions,
     createdBy: req.admin._id,
     updatedBy: req.admin._id,
   })
@@ -303,9 +365,17 @@ export const updateTeamMember = asyncHandler(async (req, res) => {
 
   if (role !== undefined) {
     member.role = role
-    member.permissions = permissions || Admin.getDefaultPermissions(role)
+    member.permissions = limitPermissionsByActor(
+      req.admin,
+      permissions,
+      role
+    )
   } else if (permissions !== undefined) {
-    member.permissions = permissions
+    member.permissions = limitPermissionsByActor(
+      req.admin,
+      permissions,
+      member.role
+    )
   }
 
   if (isActive !== undefined) {
