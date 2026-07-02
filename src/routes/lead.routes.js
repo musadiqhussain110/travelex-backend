@@ -11,6 +11,7 @@ import {
   assignLead,
   archiveLead,
   getLeadStats,
+  syncLeadPrioritiesNow,
 } from "../controllers/lead.controller.js"
 
 import { protect, authorize } from "../middleware/auth.middleware.js"
@@ -39,6 +40,13 @@ router.get(
   protect,
   validate(getLeadsQuerySchema),
   exportLeadsCsv
+)
+
+router.patch(
+  "/sync-priorities",
+  protect,
+  authorize("superAdmin", "admin"),
+  syncLeadPrioritiesNow
 )
 
 router.get("/:id", protect, validate(leadIdParamSchema), getLeadById)

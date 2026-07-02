@@ -2,10 +2,17 @@ import Lead from "../models/Lead.model.js"
 import Admin from "../models/Admin.model.js"
 import { asyncHandler } from "../utils/asyncHandler.js"
 import { createNotification } from "../services/notification.service.js"
+import {
+  calculateLeadPriority,
+  syncLeadPriorities,
+} from "../utils/leadPriority.js"
 
 const DEFAULT_PAGE = 1
 const DEFAULT_LIMIT = 25
 const MAX_LIMIT = 100
+
+const PRIORITY_SYNC_INTERVAL_MS = 1000 * 60 * 60
+let lastPrioritySyncAt = 0
 
 const allowedSortValues = new Set([
   "createdAt",
@@ -65,6 +72,26 @@ const getTodayRange = () => {
   end.setDate(end.getDate() + 1)
 
   return { start, end }
+}
+
+const syncLeadPrioritiesIfDue = async ({ force = false } = {}) => {
+  const now = Date.now()
+
+  if (!force && now - lastPrioritySyncAt < PRIORITY_SYNC_INTERVAL_MS) {
+    return {
+      skipped: true,
+      checked: 0,
+      updated: 0,
+    }
+  }
+
+  const result = await syncLeadPriorities(Lead)
+  lastPrioritySyncAt = now
+
+  return {
+    skipped: false,
+    ...result,
+  }
 }
 
 const buildLeadFilter = (query = {}) => {
@@ -235,7 +262,8 @@ const sendLeadWhatsAppNotificationsIfAvailable = async (lead) => {
 }
 
 export const createLead = asyncHandler(async (req, res) => {
-  const { companyWebsite, ...leadData } = req.validated.body
+  const { companyWebsite, priority: ignoredPriority, ...leadData } =
+    req.validated.body
 
   if (companyWebsite) {
     return res.status(200).json({
@@ -244,8 +272,14 @@ export const createLead = asyncHandler(async (req, res) => {
     })
   }
 
+  const calculatedPriority = calculateLeadPriority({
+    ...leadData,
+    status: "New",
+  })
+
   const lead = await Lead.create({
     ...leadData,
+    priority: calculatedPriority,
     ipAddress: req.ip || "",
     userAgent: req.get("user-agent") || "",
   })
@@ -272,12 +306,15 @@ export const createLead = asyncHandler(async (req, res) => {
       phone: lead.phone,
       serviceType: lead.serviceType,
       status: lead.status,
+      priority: lead.priority,
       createdAt: lead.createdAt,
     },
   })
 })
 
 export const getLeads = asyncHandler(async (req, res) => {
+  await syncLeadPrioritiesIfDue()
+
   const { page, limit, skip } = getPaginationParams(
     req.validated.query.page,
     req.validated.query.limit
@@ -304,18 +341,12 @@ export const getLeads = asyncHandler(async (req, res) => {
 
   res.status(200).json({
     success: true,
-
-    // Backward-compatible fields for your current frontend
     count: leads.length,
     total,
     page,
     pages: pagination.totalPages,
     leads,
-
-    // New professional pagination object for scalable frontend table
     pagination,
-
-    // Optional structured response for future frontend usage
     data: {
       leads,
       pagination,
@@ -324,6 +355,8 @@ export const getLeads = asyncHandler(async (req, res) => {
 })
 
 export const getLeadById = asyncHandler(async (req, res) => {
+  await syncLeadPrioritiesIfDue()
+
   const { id } = req.validated.params
 
   const lead = await Lead.findById(id)
@@ -362,9 +395,11 @@ export const updateLeadStatus = asyncHandler(async (req, res) => {
       changedAt: new Date(),
       changedBy: req.admin._id,
     })
-
-    await lead.save()
   }
+
+  lead.priority = calculateLeadPriority(lead)
+
+  await lead.save()
 
   const updatedLead = await Lead.findById(id)
     .populate("assignedTo", "name email role")
@@ -414,6 +449,8 @@ export const updateLeadFollowUp = asyncHandler(async (req, res) => {
   if (!lead.followUpDate && lead.followUpStatus === "Scheduled") {
     lead.followUpStatus = "Not Set"
   }
+
+  lead.priority = calculateLeadPriority(lead)
 
   lead.followUpHistory.push({
     followUpDate: lead.followUpDate,
@@ -520,6 +557,7 @@ export const archiveLead = asyncHandler(async (req, res) => {
     lead,
   })
 })
+
 const escapeCsvValue = (value = "") => {
   const stringValue =
     value === undefined || value === null ? "" : String(value)
@@ -543,6 +581,8 @@ const getLeadDestination = (lead = {}) => {
 }
 
 export const exportLeadsCsv = asyncHandler(async (req, res) => {
+  await syncLeadPrioritiesIfDue()
+
   const filter = buildLeadFilter(req.validated.query)
   const sort = getSortValue(req.validated.query.sort)
 
@@ -599,7 +639,20 @@ export const exportLeadsCsv = asyncHandler(async (req, res) => {
 
   res.status(200).send(csvContent)
 })
+
+export const syncLeadPrioritiesNow = asyncHandler(async (req, res) => {
+  const result = await syncLeadPrioritiesIfDue({ force: true })
+
+  res.status(200).json({
+    success: true,
+    message: "Lead priorities synced successfully.",
+    result,
+  })
+})
+
 export const getLeadStats = asyncHandler(async (req, res) => {
+  await syncLeadPrioritiesIfDue()
+
   const { start, end } = getTodayRange()
 
   const [
