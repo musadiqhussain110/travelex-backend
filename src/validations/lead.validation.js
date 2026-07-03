@@ -101,6 +101,24 @@ const leadSortSchema = z.enum([
   "-followUpDate",
 ])
 
+const leadSourceSchema = z
+  .object({
+    source: optionalString(100, "direct"),
+    medium: optionalString(100),
+    campaign: optionalString(150),
+    content: optionalString(150),
+    term: optionalString(150),
+    referrer: optionalString(1000),
+    landingPage: optionalString(1000),
+    landingPath: optionalString(300),
+    formPage: optionalString(1000),
+    formPath: optionalString(300),
+    capturedAt: optionalDate,
+    submittedAt: optionalDate,
+  })
+  .optional()
+  .default({})
+
 export const createLeadSchema = z.object({
   body: z.object({
     name: z
@@ -124,6 +142,8 @@ export const createLeadSchema = z.object({
     serviceType: serviceTypeSchema,
 
     source: sourceSchema.default("homepage"),
+
+    leadSource: leadSourceSchema,
 
     pageUrl: optionalString(500),
 

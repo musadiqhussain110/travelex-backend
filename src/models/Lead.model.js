@@ -139,6 +139,93 @@ const followUpHistorySchema = new mongoose.Schema(
   }
 )
 
+const leadSourceSchema = new mongoose.Schema(
+  {
+    source: {
+      type: String,
+      trim: true,
+      maxlength: [100, "Lead source cannot exceed 100 characters"],
+      default: "direct",
+    },
+
+    medium: {
+      type: String,
+      trim: true,
+      maxlength: [100, "Lead medium cannot exceed 100 characters"],
+      default: "",
+    },
+
+    campaign: {
+      type: String,
+      trim: true,
+      maxlength: [150, "Lead campaign cannot exceed 150 characters"],
+      default: "",
+    },
+
+    content: {
+      type: String,
+      trim: true,
+      maxlength: [150, "Lead content cannot exceed 150 characters"],
+      default: "",
+    },
+
+    term: {
+      type: String,
+      trim: true,
+      maxlength: [150, "Lead term cannot exceed 150 characters"],
+      default: "",
+    },
+
+    referrer: {
+      type: String,
+      trim: true,
+      maxlength: [1000, "Referrer cannot exceed 1000 characters"],
+      default: "",
+    },
+
+    landingPage: {
+      type: String,
+      trim: true,
+      maxlength: [1000, "Landing page cannot exceed 1000 characters"],
+      default: "",
+    },
+
+    landingPath: {
+      type: String,
+      trim: true,
+      maxlength: [300, "Landing path cannot exceed 300 characters"],
+      default: "",
+    },
+
+    formPage: {
+      type: String,
+      trim: true,
+      maxlength: [1000, "Form page cannot exceed 1000 characters"],
+      default: "",
+    },
+
+    formPath: {
+      type: String,
+      trim: true,
+      maxlength: [300, "Form path cannot exceed 300 characters"],
+      default: "",
+    },
+
+    capturedAt: {
+      type: Date,
+      default: null,
+    },
+
+    submittedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  {
+    _id: false,
+  }
+)
+
 const leadSchema = new mongoose.Schema(
   {
     name: {
@@ -172,6 +259,11 @@ const leadSchema = new mongoose.Schema(
       type: String,
       enum: LEAD_SOURCES,
       default: "homepage",
+    },
+
+    leadSource: {
+      type: leadSourceSchema,
+      default: () => ({}),
     },
 
     pageUrl: {
@@ -652,6 +744,10 @@ leadSchema.index({ isArchived: 1, status: 1, createdAt: -1 })
 leadSchema.index({ isArchived: 1, serviceType: 1, createdAt: -1 })
 leadSchema.index({ isArchived: 1, priority: 1, createdAt: -1 })
 leadSchema.index({ isArchived: 1, source: 1, createdAt: -1 })
+
+leadSchema.index({ isArchived: 1, "leadSource.source": 1, createdAt: -1 })
+leadSchema.index({ isArchived: 1, "leadSource.medium": 1, createdAt: -1 })
+leadSchema.index({ isArchived: 1, "leadSource.campaign": 1, createdAt: -1 })
 
 leadSchema.index({ isArchived: 1, serviceType: 1, status: 1, createdAt: -1 })
 leadSchema.index({ isArchived: 1, status: 1, priority: 1, createdAt: -1 })

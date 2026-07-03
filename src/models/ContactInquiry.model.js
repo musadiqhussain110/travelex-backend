@@ -66,6 +66,93 @@ const statusHistorySchema = new mongoose.Schema(
   }
 );
 
+const leadSourceSchema = new mongoose.Schema(
+  {
+    source: {
+      type: String,
+      trim: true,
+      maxlength: [100, "Lead source cannot exceed 100 characters"],
+      default: "direct"
+    },
+
+    medium: {
+      type: String,
+      trim: true,
+      maxlength: [100, "Lead medium cannot exceed 100 characters"],
+      default: ""
+    },
+
+    campaign: {
+      type: String,
+      trim: true,
+      maxlength: [150, "Lead campaign cannot exceed 150 characters"],
+      default: ""
+    },
+
+    content: {
+      type: String,
+      trim: true,
+      maxlength: [150, "Lead content cannot exceed 150 characters"],
+      default: ""
+    },
+
+    term: {
+      type: String,
+      trim: true,
+      maxlength: [150, "Lead term cannot exceed 150 characters"],
+      default: ""
+    },
+
+    referrer: {
+      type: String,
+      trim: true,
+      maxlength: [1000, "Referrer cannot exceed 1000 characters"],
+      default: ""
+    },
+
+    landingPage: {
+      type: String,
+      trim: true,
+      maxlength: [1000, "Landing page cannot exceed 1000 characters"],
+      default: ""
+    },
+
+    landingPath: {
+      type: String,
+      trim: true,
+      maxlength: [300, "Landing path cannot exceed 300 characters"],
+      default: ""
+    },
+
+    formPage: {
+      type: String,
+      trim: true,
+      maxlength: [1000, "Form page cannot exceed 1000 characters"],
+      default: ""
+    },
+
+    formPath: {
+      type: String,
+      trim: true,
+      maxlength: [300, "Form path cannot exceed 300 characters"],
+      default: ""
+    },
+
+    capturedAt: {
+      type: Date,
+      default: null
+    },
+
+    submittedAt: {
+      type: Date,
+      default: null
+    }
+  },
+  {
+    _id: false
+  }
+);
+
 const contactInquirySchema = new mongoose.Schema(
   {
     name: {
@@ -107,6 +194,11 @@ const contactInquirySchema = new mongoose.Schema(
       type: String,
       enum: CONTACT_INQUIRY_SOURCES,
       default: "contact-page"
+    },
+
+    leadSource: {
+      type: leadSourceSchema,
+      default: () => ({})
     },
 
     pageUrl: {
@@ -165,12 +257,17 @@ contactInquirySchema.index({ status: 1 });
 contactInquirySchema.index({ source: 1 });
 contactInquirySchema.index({ assignedTo: 1 });
 contactInquirySchema.index({ createdAt: -1 });
+
+contactInquirySchema.index({ "leadSource.source": 1, createdAt: -1 });
+contactInquirySchema.index({ "leadSource.medium": 1, createdAt: -1 });
+contactInquirySchema.index({ "leadSource.campaign": 1, createdAt: -1 });
+
 contactInquirySchema.index({
   name: "text",
   email: "text",
   phone: "text",
   subject: "text",
-  message: "text"
+  message: "text",
 });
 
 const ContactInquiry = mongoose.model(

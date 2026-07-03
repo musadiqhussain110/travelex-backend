@@ -9,6 +9,19 @@ const optionalObjectId = z.preprocess(
   objectIdSchema.optional()
 );
 
+const optionalString = (max = 250, defaultValue = "") =>
+  z
+    .string()
+    .trim()
+    .max(max, `Cannot exceed ${max} characters`)
+    .optional()
+    .default(defaultValue);
+
+const optionalDate = z.preprocess(
+  (value) => (value === "" || value === null ? undefined : value),
+  z.coerce.date().optional()
+);
+
 const statusSchema = z.enum([
   "New",
   "Read",
@@ -25,6 +38,24 @@ const sourceSchema = z.enum([
   "manual",
   "other"
 ]);
+
+const leadSourceSchema = z
+  .object({
+    source: optionalString(100, "direct"),
+    medium: optionalString(100),
+    campaign: optionalString(150),
+    content: optionalString(150),
+    term: optionalString(150),
+    referrer: optionalString(1000),
+    landingPage: optionalString(1000),
+    landingPath: optionalString(300),
+    formPage: optionalString(1000),
+    formPath: optionalString(300),
+    capturedAt: optionalDate,
+    submittedAt: optionalDate
+  })
+  .optional()
+  .default({});
 
 export const createContactInquirySchema = z.object({
   body: z.object({
@@ -43,6 +74,8 @@ export const createContactInquirySchema = z.object({
     message: z.string().trim().min(10).max(3000),
 
     source: sourceSchema.optional().default("contact-page"),
+
+    leadSource: leadSourceSchema,
 
     pageUrl: z.string().trim().max(500).optional().default(""),
 
