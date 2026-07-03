@@ -6,6 +6,12 @@ import {
   calculateLeadPriority,
   syncLeadPriorities,
 } from "../utils/leadPriority.js"
+import {
+  openSalesStatuses,
+  normalizeDateOnly,
+  getTodayDateRange,
+  getNoSalesFollowUpCondition,
+} from "../utils/followUpDate.utils.js"
 
 const DEFAULT_PAGE = 1
 const DEFAULT_LIMIT = 25
@@ -62,16 +68,6 @@ const getSortValue = (sort) => {
   if (!sort) return "-createdAt"
 
   return allowedSortValues.has(sort) ? sort : "-createdAt"
-}
-
-const getTodayRange = () => {
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
-
-  const end = new Date(start)
-  end.setDate(end.getDate() + 1)
-
-  return { start, end }
 }
 
 const syncLeadPrioritiesIfDue = async ({ force = false } = {}) => {
@@ -141,44 +137,42 @@ const buildLeadFilter = (query = {}) => {
     filter.assignedTo = assignedTo
   }
 
-  if (followUp) {
-    const { start, end } = getTodayRange()
+  if (followUp && followUp !== "All") {
+    const { start, end } = getTodayDateRange()
 
     if (followUp === "today") {
-      filter.followUpDate = {
-        $gte: start,
-        $lt: end,
-      }
-
-      if (!followUpStatus) {
-        filter.followUpStatus = "Scheduled"
-      }
+      andConditions.push({
+        status: { $in: openSalesStatuses },
+        followUpStatus: "Scheduled",
+        followUpDate: {
+          $gte: start,
+          $lt: end,
+        },
+      })
     }
 
     if (followUp === "overdue") {
-      filter.followUpDate = {
-        $lt: start,
-      }
-
-      if (!followUpStatus) {
-        filter.followUpStatus = "Scheduled"
-      }
+      andConditions.push({
+        status: { $in: openSalesStatuses },
+        followUpStatus: "Scheduled",
+        followUpDate: {
+          $lt: start,
+        },
+      })
     }
 
     if (followUp === "upcoming") {
-      filter.followUpDate = {
-        $gte: end,
-      }
-
-      if (!followUpStatus) {
-        filter.followUpStatus = "Scheduled"
-      }
+      andConditions.push({
+        status: { $in: openSalesStatuses },
+        followUpStatus: "Scheduled",
+        followUpDate: {
+          $gte: end,
+        },
+      })
     }
 
     if (followUp === "none") {
-      andConditions.push({
-        $or: [{ followUpDate: null }, { followUpStatus: "Not Set" }],
-      })
+      andConditions.push(getNoSalesFollowUpCondition())
     }
   }
 
@@ -427,7 +421,11 @@ export const updateLeadFollowUp = asyncHandler(async (req, res) => {
   }
 
   if (followUpDate !== undefined) {
-    lead.followUpDate = followUpDate
+    if (followUpDate === null || followUpDate === "") {
+      lead.followUpDate = null
+    } else {
+      lead.followUpDate = normalizeDateOnly(followUpDate)
+    }
   }
 
   if (followUpTime !== undefined) {
@@ -440,9 +438,14 @@ export const updateLeadFollowUp = asyncHandler(async (req, res) => {
 
   if (followUpStatus !== undefined) {
     lead.followUpStatus = followUpStatus
-  } else if (followUpDate === null) {
+  } else if (followUpDate === null || followUpDate === "") {
     lead.followUpStatus = "Not Set"
-  } else if (followUpDate && lead.followUpStatus === "Not Set") {
+  } else if (
+    followUpDate &&
+    (!lead.followUpStatus ||
+      lead.followUpStatus === "Not Set" ||
+      lead.followUpStatus === "")
+  ) {
     lead.followUpStatus = "Scheduled"
   }
 
@@ -653,7 +656,7 @@ export const syncLeadPrioritiesNow = asyncHandler(async (req, res) => {
 export const getLeadStats = asyncHandler(async (req, res) => {
   await syncLeadPrioritiesIfDue()
 
-  const { start, end } = getTodayRange()
+  const { start, end } = getTodayDateRange()
 
   const [
     totalLeads,
@@ -696,6 +699,7 @@ export const getLeadStats = asyncHandler(async (req, res) => {
 
     Lead.countDocuments({
       isArchived: false,
+      status: { $in: openSalesStatuses },
       followUpStatus: "Scheduled",
       followUpDate: {
         $gte: start,
@@ -705,6 +709,7 @@ export const getLeadStats = asyncHandler(async (req, res) => {
 
     Lead.countDocuments({
       isArchived: false,
+      status: { $in: openSalesStatuses },
       followUpStatus: "Scheduled",
       followUpDate: {
         $lt: start,
@@ -713,6 +718,7 @@ export const getLeadStats = asyncHandler(async (req, res) => {
 
     Lead.countDocuments({
       isArchived: false,
+      status: { $in: openSalesStatuses },
       followUpStatus: "Scheduled",
       followUpDate: {
         $gte: end,
@@ -721,7 +727,7 @@ export const getLeadStats = asyncHandler(async (req, res) => {
 
     Lead.countDocuments({
       isArchived: false,
-      $or: [{ followUpDate: null }, { followUpStatus: "Not Set" }],
+      ...getNoSalesFollowUpCondition(),
     }),
   ])
 

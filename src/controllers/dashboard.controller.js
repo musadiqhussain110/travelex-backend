@@ -8,6 +8,11 @@ import Faq from "../models/Faq.model.js";
 import Notification from "../models/Notification.model.js";
 
 import { asyncHandler } from "../utils/asyncHandler.js";
+import {
+  openSalesStatuses,
+  getTodayDateRange,
+  getNoSalesFollowUpCondition,
+} from "../utils/followUpDate.utils.js";
 
 const convertedStatuses = ["Confirmed", "Booked"];
 const lostStatuses = ["Lost", "Cancelled"];
@@ -51,15 +56,11 @@ const getPreviousStartDate = (currentStartDate, days) => {
 };
 
 const getTodayStart = () => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return today;
+  return getTodayDateRange().start;
 };
 
 const getTomorrowStart = () => {
-  const tomorrow = getTodayStart();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return tomorrow;
+  return getTodayDateRange().end;
 };
 
 const getDateKey = (date) => {
@@ -174,20 +175,14 @@ const addNotificationReadStatus = (notifications, adminId) => {
 const buildNoFollowUpMatch = (extraMatch = {}) => {
   return {
     ...extraMatch,
-    $or: [
-      { followUpDate: { $exists: false } },
-      { followUpDate: null },
-      { followUpStatus: { $exists: false } },
-      { followUpStatus: null },
-      { followUpStatus: "" },
-      { followUpStatus: "Not Set" },
-    ],
+    ...getNoSalesFollowUpCondition(),
   };
 };
 
 const getBusinessSummary = async (match = {}, todayStart, tomorrowStart) => {
   const [
     totalLeads,
+    activeSalesLeads,
     convertedLeads,
     lostLeads,
     newLeads,
@@ -199,6 +194,11 @@ const getBusinessSummary = async (match = {}, todayStart, tomorrowStart) => {
     todayFollowUps,
   ] = await Promise.all([
     Lead.countDocuments(match),
+
+    Lead.countDocuments({
+      ...match,
+      status: { $in: openSalesStatuses },
+    }),
 
     Lead.countDocuments({
       ...match,
@@ -229,17 +229,21 @@ const getBusinessSummary = async (match = {}, todayStart, tomorrowStart) => {
 
     Lead.countDocuments({
       ...match,
+      status: { $in: openSalesStatuses },
       followUpStatus: "Scheduled",
+      followUpDate: { $ne: null },
     }),
 
     Lead.countDocuments({
       ...match,
+      status: { $in: openSalesStatuses },
       followUpStatus: "Scheduled",
       followUpDate: { $lt: todayStart },
     }),
 
     Lead.countDocuments({
       ...match,
+      status: { $in: openSalesStatuses },
       followUpStatus: "Scheduled",
       followUpDate: {
         $gte: todayStart,
@@ -250,6 +254,7 @@ const getBusinessSummary = async (match = {}, todayStart, tomorrowStart) => {
 
   return {
     totalLeads,
+    activeSalesLeads,
     convertedLeads,
     lostLeads,
     newLeads,
@@ -261,7 +266,7 @@ const getBusinessSummary = async (match = {}, todayStart, tomorrowStart) => {
     todayFollowUps,
     conversionRate: getConversionRate(convertedLeads, totalLeads),
     lostRate: getConversionRate(lostLeads, totalLeads),
-    noFollowUpRate: getConversionRate(noFollowUpLeads, totalLeads),
+    noFollowUpRate: getConversionRate(noFollowUpLeads, activeSalesLeads),
   };
 };
 
@@ -291,12 +296,22 @@ const getTimelineAggregation = async (match = {}) => {
           $sum: {
             $cond: [
               {
-                $or: [
-                  { $eq: [{ $ifNull: ["$followUpDate", null] }, null] },
+                $and: [
+                  { $in: ["$status", openSalesStatuses] },
                   {
-                    $in: [
-                      { $ifNull: ["$followUpStatus", "Not Set"] },
-                      ["Not Set", ""],
+                    $or: [
+                      {
+                        $eq: [
+                          { $ifNull: ["$followUpDate", null] },
+                          null,
+                        ],
+                      },
+                      {
+                        $in: [
+                          { $ifNull: ["$followUpStatus", "Not Set"] },
+                          ["Not Set", ""],
+                        ],
+                      },
                     ],
                   },
                 ],
@@ -328,6 +343,11 @@ const getServicePerformance = async (match = {}, todayStart) => {
       $group: {
         _id: "$serviceType",
         totalLeads: { $sum: 1 },
+        activeSalesLeads: {
+          $sum: {
+            $cond: [{ $in: ["$status", openSalesStatuses] }, 1, 0],
+          },
+        },
         convertedLeads: {
           $sum: {
             $cond: [{ $in: ["$status", convertedStatuses] }, 1, 0],
@@ -350,7 +370,22 @@ const getServicePerformance = async (match = {}, todayStart) => {
         },
         scheduledFollowUps: {
           $sum: {
-            $cond: [{ $eq: ["$followUpStatus", "Scheduled"] }, 1, 0],
+            $cond: [
+              {
+                $and: [
+                  { $in: ["$status", openSalesStatuses] },
+                  { $eq: ["$followUpStatus", "Scheduled"] },
+                  {
+                    $ne: [
+                      { $ifNull: ["$followUpDate", null] },
+                      null,
+                    ],
+                  },
+                ],
+              },
+              1,
+              0,
+            ],
           },
         },
         overdueFollowUps: {
@@ -358,7 +393,14 @@ const getServicePerformance = async (match = {}, todayStart) => {
             $cond: [
               {
                 $and: [
+                  { $in: ["$status", openSalesStatuses] },
                   { $eq: ["$followUpStatus", "Scheduled"] },
+                  {
+                    $ne: [
+                      { $ifNull: ["$followUpDate", null] },
+                      null,
+                    ],
+                  },
                   { $lt: ["$followUpDate", todayStart] },
                 ],
               },
@@ -371,12 +413,22 @@ const getServicePerformance = async (match = {}, todayStart) => {
           $sum: {
             $cond: [
               {
-                $or: [
-                  { $eq: [{ $ifNull: ["$followUpDate", null] }, null] },
+                $and: [
+                  { $in: ["$status", openSalesStatuses] },
                   {
-                    $in: [
-                      { $ifNull: ["$followUpStatus", "Not Set"] },
-                      ["Not Set", ""],
+                    $or: [
+                      {
+                        $eq: [
+                          { $ifNull: ["$followUpDate", null] },
+                          null,
+                        ],
+                      },
+                      {
+                        $in: [
+                          { $ifNull: ["$followUpStatus", "Not Set"] },
+                          ["Not Set", ""],
+                        ],
+                      },
                     ],
                   },
                 ],
@@ -400,6 +452,7 @@ const getServicePerformance = async (match = {}, todayStart) => {
     serviceType: item._id || "general",
     serviceLabel: serviceLabels[item._id] || item._id || "General",
     totalLeads: item.totalLeads,
+    activeSalesLeads: item.activeSalesLeads,
     convertedLeads: item.convertedLeads,
     lostLeads: item.lostLeads,
     newLeads: item.newLeads,
@@ -411,7 +464,7 @@ const getServicePerformance = async (match = {}, todayStart) => {
     lostRate: getConversionRate(item.lostLeads, item.totalLeads),
     noFollowUpRate: getConversionRate(
       item.noFollowUpLeads,
-      item.totalLeads
+      item.activeSalesLeads
     ),
   }));
 };
@@ -655,6 +708,7 @@ export const getBusinessInsights = asyncHandler(async (req, res) => {
 
     Lead.find({
       ...currentMatch,
+      status: { $in: openSalesStatuses },
       followUpStatus: "Scheduled",
       followUpDate: { $lt: todayStart },
     })
@@ -678,7 +732,7 @@ export const getBusinessInsights = asyncHandler(async (req, res) => {
 
   const weakestFollowUpService =
     servicePerformance
-      .filter((item) => item.totalLeads > 0)
+      .filter((item) => item.activeSalesLeads > 0)
       .sort((a, b) => b.noFollowUpRate - a.noFollowUpRate)[0] || null;
 
   res.status(200).json({
