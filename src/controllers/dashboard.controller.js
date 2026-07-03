@@ -486,6 +486,7 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
 
     leadStatusStats,
     leadServiceStats,
+    leadMarketingSourceStats,
     contactStatusStats,
 
     leadTrend,
@@ -530,6 +531,11 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
       "readBy.admin": { $ne: req.admin._id },
     }),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Leads by CRM status
+    |--------------------------------------------------------------------------
+    */
     Lead.aggregate([
       { $match: { isArchived: false } },
       {
@@ -540,6 +546,11 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
       },
     ]),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Leads by TravelEx service
+    |--------------------------------------------------------------------------
+    */
     Lead.aggregate([
       { $match: { isArchived: false } },
       {
@@ -550,6 +561,72 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
       },
     ]),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Leads by marketing source / platform
+    |--------------------------------------------------------------------------
+    | Uses:
+    |   leadSource.source
+    |
+    | Examples:
+    |   instagram
+    |   facebook
+    |   whatsapp
+    |   google
+    |   tiktok
+    |   youtube
+    |   direct
+    |   referral
+    |
+    | Older leads without leadSource.source are grouped as "unknown".
+    |--------------------------------------------------------------------------
+    */
+    Lead.aggregate([
+      {
+        $match: {
+          isArchived: false,
+        },
+      },
+      {
+        $project: {
+          normalizedMarketingSource: {
+            $toLower: {
+              $trim: {
+                input: {
+                  $ifNull: ["$leadSource.source", ""],
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            $cond: [
+              { $eq: ["$normalizedMarketingSource", ""] },
+              "unknown",
+              "$normalizedMarketingSource",
+            ],
+          },
+          count: {
+            $sum: 1,
+          },
+        },
+      },
+      {
+        $sort: {
+          count: -1,
+          _id: 1,
+        },
+      },
+    ]),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Contact inquiries by status
+    |--------------------------------------------------------------------------
+    */
     ContactInquiry.aggregate([
       { $match: { isArchived: false } },
       {
@@ -577,13 +654,17 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
     Lead.find({ isArchived: false })
       .sort("-createdAt")
       .limit(5)
-      .select("name email phone serviceType status createdAt")
+      .select(
+        "name email phone serviceType status source leadSource createdAt"
+      )
       .lean(),
 
     ContactInquiry.find({ isArchived: false })
       .sort("-createdAt")
       .limit(5)
-      .select("name email phone subject status createdAt")
+      .select(
+        "name email phone subject status source leadSource createdAt"
+      )
       .lean(),
 
     Notification.find({ isArchived: false })
@@ -618,7 +699,11 @@ export const getDashboardOverview = asyncHandler(async (req, res) => {
 
       crm: {
         leadsByStatus: formatStats(leadStatusStats),
+
         leadsByServiceType: formatStats(leadServiceStats),
+
+        leadsByMarketingSource: formatStats(leadMarketingSourceStats),
+
         contactInquiriesByStatus: formatStats(contactStatusStats),
       },
 
@@ -720,7 +805,11 @@ export const getBusinessInsights = asyncHandler(async (req, res) => {
       .lean(),
   ]);
 
-  const timeline = fillTimelineGaps(timelineRaw, currentStartDate, days);
+  const timeline = fillTimelineGaps(
+    timelineRaw,
+    currentStartDate,
+    days
+  );
 
   const bestServiceByConversions =
     servicePerformance.length > 0 ? servicePerformance[0] : null;
@@ -751,24 +840,30 @@ export const getBusinessInsights = asyncHandler(async (req, res) => {
       comparison: {
         current: currentSummary,
         previous: previousSummary,
+
         changes: {
           totalLeadsChange: getPercentageChange(
             currentSummary.totalLeads,
             previousSummary.totalLeads
           ),
+
           convertedLeadsChange: getPercentageChange(
             currentSummary.convertedLeads,
             previousSummary.convertedLeads
           ),
+
           conversionRateChange: Number(
             (
-              currentSummary.conversionRate - previousSummary.conversionRate
+              currentSummary.conversionRate -
+              previousSummary.conversionRate
             ).toFixed(1)
           ),
+
           lostLeadsChange: getPercentageChange(
             currentSummary.lostLeads,
             previousSummary.lostLeads
           ),
+
           noFollowUpLeadsChange: getPercentageChange(
             currentSummary.noFollowUpLeads,
             previousSummary.noFollowUpLeads
