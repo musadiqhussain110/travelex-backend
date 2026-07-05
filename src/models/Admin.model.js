@@ -125,6 +125,43 @@ const adminSchema = new mongoose.Schema(
       },
     },
 
+    /*
+    |--------------------------------------------------------------------------
+    | Consultant WhatsApp number
+    |--------------------------------------------------------------------------
+    | Recommended format:
+    | +923001234567
+    |
+    | The WhatsApp service normalizes it before sending.
+    */
+    whatsappNumber: {
+      type: String,
+      trim: true,
+      default: "",
+      maxlength: [
+        30,
+        "WhatsApp number cannot exceed 30 characters",
+      ],
+    },
+
+    /*
+    |--------------------------------------------------------------------------
+    | Follow-up reminder preferences
+    |--------------------------------------------------------------------------
+    | Each consultant can independently enable or disable channels.
+    */
+    reminderPreferences: {
+      email: {
+        type: Boolean,
+        default: true,
+      },
+
+      whatsapp: {
+        type: Boolean,
+        default: false,
+      },
+    },
+
     isActive: {
       type: Boolean,
       default: true,
@@ -184,7 +221,10 @@ adminSchema.methods.comparePassword = async function (enteredPassword) {
   return bcrypt.compare(enteredPassword, this.password)
 }
 
-adminSchema.methods.hasPermission = function (module, action = "view") {
+adminSchema.methods.hasPermission = function (
+  module,
+  action = "view"
+) {
   if (this.role === "superAdmin") return true
 
   return Boolean(this.permissions?.[module]?.[action])
@@ -199,6 +239,23 @@ adminSchema.statics.getDefaultPermissions = getDefaultPermissions
 
 adminSchema.index({ role: 1, isActive: 1 })
 adminSchema.index({ createdAt: -1 })
+
+/*
+|--------------------------------------------------------------------------
+| Reminder delivery indexes
+|--------------------------------------------------------------------------
+| Useful when the reminder engine needs active consultants
+| with a specific channel enabled.
+*/
+adminSchema.index({
+  isActive: 1,
+  "reminderPreferences.email": 1,
+})
+
+adminSchema.index({
+  isActive: 1,
+  "reminderPreferences.whatsapp": 1,
+})
 
 adminSchema.set("toJSON", {
   transform: function (doc, ret) {
