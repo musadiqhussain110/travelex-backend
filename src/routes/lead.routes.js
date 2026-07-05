@@ -15,6 +15,10 @@ import {
 } from "../controllers/lead.controller.js"
 
 import {
+  runDailyFollowUpRemindersNow,
+} from "../controllers/followUpReminder.controller.js"
+
+import {
   protect,
   requireLeadAccess,
 } from "../middleware/auth.middleware.js"
@@ -33,10 +37,23 @@ import {
 
 const router = express.Router()
 
-// Public lead creation from website forms
-router.post("/", validate(createLeadSchema), createLead)
+/*
+|--------------------------------------------------------------------------
+| Public lead creation
+|--------------------------------------------------------------------------
+| Website forms can create leads without admin authentication.
+*/
+router.post(
+  "/",
+  validate(createLeadSchema),
+  createLead
+)
 
-// View leads
+/*
+|--------------------------------------------------------------------------
+| View leads
+|--------------------------------------------------------------------------
+*/
 router.get(
   "/",
   protect,
@@ -45,7 +62,11 @@ router.get(
   getLeads
 )
 
-// View lead stats
+/*
+|--------------------------------------------------------------------------
+| View lead stats
+|--------------------------------------------------------------------------
+*/
 router.get(
   "/stats",
   protect,
@@ -53,7 +74,11 @@ router.get(
   getLeadStats
 )
 
-// Export leads CSV
+/*
+|--------------------------------------------------------------------------
+| Export leads CSV
+|--------------------------------------------------------------------------
+*/
 router.get(
   "/export",
   protect,
@@ -62,7 +87,11 @@ router.get(
   exportLeadsCsv
 )
 
-// Sync priorities
+/*
+|--------------------------------------------------------------------------
+| Sync lead priorities
+|--------------------------------------------------------------------------
+*/
 router.patch(
   "/sync-priorities",
   protect,
@@ -70,7 +99,40 @@ router.patch(
   syncLeadPrioritiesNow
 )
 
-// View single lead
+/*
+|--------------------------------------------------------------------------
+| Run daily follow-up reminder engine
+|--------------------------------------------------------------------------
+| POST /api/v1/leads/reminders/run-daily
+|
+| Why require "assign" permission?
+|
+| Super Admin: allowed
+| Admin:       allowed
+| Consultant:  blocked
+| Viewer:      blocked
+|
+| This prevents ordinary consultants from globally triggering reminders
+| for every assigned consultant.
+|--------------------------------------------------------------------------
+*/
+router.post(
+  "/reminders/run-daily",
+  protect,
+  requireLeadAccess("assign"),
+  runDailyFollowUpRemindersNow
+)
+
+/*
+|--------------------------------------------------------------------------
+| View single lead
+|--------------------------------------------------------------------------
+| Dynamic :id routes stay below fixed routes such as:
+| /stats
+| /export
+| /reminders/run-daily
+|--------------------------------------------------------------------------
+*/
 router.get(
   "/:id",
   protect,
@@ -79,7 +141,11 @@ router.get(
   getLeadById
 )
 
-// Update lead status
+/*
+|--------------------------------------------------------------------------
+| Update lead status
+|--------------------------------------------------------------------------
+*/
 router.patch(
   "/:id/status",
   protect,
@@ -88,7 +154,11 @@ router.patch(
   updateLeadStatus
 )
 
-// Update lead follow-up
+/*
+|--------------------------------------------------------------------------
+| Update lead follow-up
+|--------------------------------------------------------------------------
+*/
 router.patch(
   "/:id/follow-up",
   protect,
@@ -97,7 +167,11 @@ router.patch(
   updateLeadFollowUp
 )
 
-// Add lead note
+/*
+|--------------------------------------------------------------------------
+| Add lead note
+|--------------------------------------------------------------------------
+*/
 router.post(
   "/:id/notes",
   protect,
@@ -106,7 +180,11 @@ router.post(
   addLeadNote
 )
 
-// Assign lead
+/*
+|--------------------------------------------------------------------------
+| Assign / reassign lead
+|--------------------------------------------------------------------------
+*/
 router.patch(
   "/:id/assign",
   protect,
@@ -115,7 +193,11 @@ router.patch(
   assignLead
 )
 
-// Archive lead
+/*
+|--------------------------------------------------------------------------
+| Archive lead
+|--------------------------------------------------------------------------
+*/
 router.patch(
   "/:id/archive",
   protect,
