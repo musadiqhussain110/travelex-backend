@@ -14,7 +14,7 @@ import {
   getNoSalesFollowUpCondition,
 } from "../utils/followUpDate.utils.js";
 
-const convertedStatuses = ["Confirmed", "Booked"];
+const convertedStatuses = ["Booked"];
 const lostStatuses = ["Lost", "Cancelled"];
 
 const serviceLabels = {

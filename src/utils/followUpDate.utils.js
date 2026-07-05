@@ -3,12 +3,10 @@ export const openSalesStatuses = [
   "Contacted",
   "Interested",
   "Awaiting Documents",
-  "Quoted",
   "Payment Pending",
 ]
 
 export const closedLeadStatuses = [
-  "Confirmed",
   "Booked",
   "Lost",
   "Cancelled",

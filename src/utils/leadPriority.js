@@ -1,13 +1,16 @@
 const PRIORITY_ORDER = ["low", "medium", "high", "urgent"]
 
-const CLOSED_STATUSES = new Set(["Lost", "Cancelled", "Confirmed", "Booked"])
+const CLOSED_STATUSES = new Set(["Lost", "Cancelled", "Booked"])
 
 const ACTIVE_URGENT_STATUSES = new Set([
   "Awaiting Documents",
   "Payment Pending",
 ])
-
-const SALES_ACTIVE_STATUSES = new Set(["Interested", "Quoted"])
+const SALES_ACTIVE_STATUSES = new Set([
+  "Interested",
+  "Awaiting Documents",
+  "Payment Pending",
+])
 
 const getValidDate = (value) => {
   if (!value) return null
